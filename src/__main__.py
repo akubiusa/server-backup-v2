@@ -9,7 +9,7 @@ from typing import List, Optional
 from pymysql import MySQLError
 from pymysql.cursors import DictCursor
 
-from src import byte_format, get_connection, get_directory_size, log, notify
+from src import byte_format, get_connection, get_directory_size, log, notify, run_pipeline
 from src.config import Config
 
 
@@ -214,13 +214,15 @@ class DBBackup(BaseBackup):
                     table,
                     backup_path
                 )
-                result = subprocess.run(command, shell=True)
+                result = run_pipeline(command)
                 if result.returncode != 0:
                     log(LOG_FILE, "[Error] Backup failed.")
                     notify(config, ":x: Backup failed.", 0xFF0000, "mysqldump command failed. ({0})".format(
                         database + "-" + table
                     ))
                     error = True
+                    if os.path.exists(backup_path):
+                        os.remove(backup_path)
                     continue
 
                 prev_path = find_previous_backup(os.path.join(config.BACKUP_DIR, "DB"), TODAY, database, table)
@@ -324,10 +326,10 @@ class FullBackup(BaseBackup):
 
         log(LOG_FILE, "[INFO] Starting backup")
         identity_arg = "" if config.FULL_IDENTITY is None else f"-i '{config.FULL_IDENTITY}'"
-        command = f"set -o pipefail; ./rsync.sh -h '{config.FULL_HOSTNAME}' -r '{config.FULL_PORT}' -u '{config.FULL_USERNAME}' {identity_arg} -k '{config.FULL_HOST_KEY_CHECKING}' -f '{config.FULL_FROM}' -o '{BACKUP_DIR}' 2>&1 | tee -a {LOG_FILE} "
+        command = f"./rsync.sh -h '{config.FULL_HOSTNAME}' -r '{config.FULL_PORT}' -u '{config.FULL_USERNAME}' {identity_arg} -k '{config.FULL_HOST_KEY_CHECKING}' -f '{config.FULL_FROM}' -o '{BACKUP_DIR}' 2>&1 | tee -a {LOG_FILE} "
         print(command)
-        result = subprocess.run(command, shell=True, executable="/bin/bash", cwd=os.path.dirname(__file__),
-                                env={**os.environ, "SSH_PASSPHRASE": str(config.FULL_PASSPHRASE)})
+        result = run_pipeline(command, cwd=os.path.dirname(__file__),
+                              env={**os.environ, "SSH_PASSPHRASE": str(config.FULL_PASSPHRASE)})
         if result.returncode != 0:
             log(LOG_FILE, "[Error] Backup (rsync) failed.")
             notify(config, ":x: Backup failed.", 0xFF0000, "rsync command failed.")
@@ -342,7 +344,7 @@ class FullBackup(BaseBackup):
             os.path.join(BACKUP_DIR, TODAY + "/"),
             LOG_FILE
         )
-        result = subprocess.run(command, shell=True, cwd=os.path.dirname(__file__))
+        result = run_pipeline(command, cwd=os.path.dirname(__file__))
         if result.returncode != 0:
             log(LOG_FILE, "[Error] Backup (tar) failed.")
             notify(config, ":x: Backup failed.", 0xFF0000, "tar command failed.")
