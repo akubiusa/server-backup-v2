@@ -22,18 +22,20 @@ A Python tool that backs up Linux servers on a regular basis.
 
 ```bash
 pip install -U -r requirements.txt        # install dependencies
-python -m py_compile src/*.py             # syntax check (there is no test, lint or format tool)
+python -m py_compile src/*.py             # syntax check (there is no lint or format tool)
+python -m unittest discover -s tests          # run the regression tests (stdlib only; needs requirements.txt installed)
 python -m src -f config.json              # run both backups; add -m db or -m full to run one
 docker compose up                         # run in Docker (needs ./configs/config.json and ./configs/keys/id_rsa)
 ./SystemdFiles/install-systemd.sh         # install and start the systemd timer (daily 08:00)
 ```
 
-CI only builds the Docker image (`.github/workflows/docker.yml`, reusable workflow from `book000/templates`) and lints the Dockerfile with hadolint (`hadolint-ci.yml`). There are no automated tests.
+CI only builds the Docker image (`.github/workflows/docker.yml`, reusable workflow from `book000/templates`) and lints the Dockerfile with hadolint (`hadolint-ci.yml`). The regression tests under `tests/` are not run by CI.
 
 ## Structure
 
 - `src/__main__.py`: CLI entry point (`-f` config path, `-m db|full`), `BaseBackup`, `DBBackup`, `FullBackup`, and the DB backup helpers `find_previous_backup`, `list_date_dirs`, `prune_expired_date_dir`.
-- `src/__init__.py`: helpers `get_connection`, `byte_format`, `log`, `get_directory_size`, `send_discord_message`, `notify`.
+- `src/__init__.py`: helpers `get_connection`, `byte_format`, `log`, `get_directory_size`, `send_discord_message`, `notify`, `run_pipeline` (runs a shell command through `/bin/bash` with `set -o pipefail`).
+- `tests/test_pipeline_failures.py`: stdlib `unittest` regression checks, using fake executables on `PATH`, that a failing `mysqldump` or `tar` inside a pipe stops the run before the success notification and the retention cleanup.
 - `src/config.py`: `Config` loads the JSON config into upper-case attributes. `getValue(key, default)` exits when a key without a default is missing, so a new required key needs no extra check. Keys under `db` and `full` are read only when the matching `enable` is true; otherwise the attributes are `None`.
 - `src/rsync.sh`: wraps `rsync` over SSH with `expect` to answer the key passphrase prompt; the passphrase comes from the `SSH_PASSPHRASE` environment variable and the host key mode from `-k`. `FullBackup` runs it with `src/` as the working directory.
 - `SystemdFiles/`: `server-backup-v2.service` (runs as root, `git pull` then `venv/bin/python -m src`), the daily timer and the installer.
@@ -47,6 +49,7 @@ CI only builds the Docker image (`.github/workflows/docker.yml`, reusable workfl
 - Log through `log(LOG_FILE, "[INFO] ...")` (not `print`). On failure, `log`, then `notify(config, ":x: Backup failed.", 0xFF0000, "<reason>")`, then `exit(1)`. Success uses `":o: Backup complete!"` and `0x008000`.
 - Commands are run with `subprocess.run(..., shell=True)` and values from the config are interpolated into the command strings, so quote and validate them carefully.
 - Commits follow [Conventional Commits](https://www.conventionalcommits.org/); branches follow [Conventional Branch](https://conventional-branch.github.io) short form (`feat/...`, `fix/...`).
+- Run multi-stage shell pipelines through `run_pipeline` in `src/__init__.py` so a failing early stage is not hidden by the last stage's exit status.
 - Do not commit to Renovate PRs.
 
 ## Safety

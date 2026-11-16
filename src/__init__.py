@@ -100,6 +100,21 @@ def get_directory_size(dir_path: str):
     return int(result.stdout.strip())
 
 
+def run_pipeline(command: str, **kwargs) -> subprocess.CompletedProcess:
+    """
+    Run a shell command that may contain pipes, failing when any stage fails.
+
+    Args:
+        command (str): Shell command run by ``/bin/bash`` with ``set -o pipefail``
+        **kwargs: Passed to ``subprocess.run`` (for example ``cwd`` and ``env``)
+
+    Returns:
+        subprocess.CompletedProcess: The return code is the last non-zero status
+        in the pipeline, or 0 when every stage succeeded.
+    """
+    return subprocess.run("set -o pipefail; " + command, shell=True, executable="/bin/bash", **kwargs)
+
+
 def send_discord_message(token: str, channelId: str, message: str = "", embed: dict = None):
     """
     Post a message to a Discord channel with the Bot token. The response is only printed.
